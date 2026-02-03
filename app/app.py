@@ -83,7 +83,7 @@ def highlight_row(row):
     styles = [''] * len(row)
 
     roas = row.get('Efektifitas Iklan')
-    sales = row.get('Penjualan Langsung (GMV Langsung)')
+    sales = row.get('Produk Terjual')
     cost = row.get('Biaya')
 
     if pd.isna(roas) or pd.isna(sales) or pd.isna(cost):
