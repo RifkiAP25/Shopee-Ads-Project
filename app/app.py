@@ -33,7 +33,7 @@ csv_mode = st.radio(
 )
 
 # =========================
-# LOAD CSV (PALING KEBAL)
+# LOAD CSV
 # =========================
 @st.cache_data
 def load_uploaded_csv(file):
@@ -93,7 +93,7 @@ def short_nama_iklan(nama):
     feature_blacklist = {
         "busui","friendly","bahan","soft","ultimate","ultimates",
         "motif","size","ukuran","promo","diskon","broad","testing",
-        "rayon","katun","cotton","silk","sutra","viscose",
+        "rayon","katun","cotton","silk","sustra","viscose",
         "linen","polyester","jersey","crepe","chiffon",
         "woolpeach","baloteli","babyterry",
         "pink","hitam","black","putih","white","navy","biru","blue",
@@ -123,6 +123,7 @@ def short_nama_iklan(nama):
 
     parts = re.split(r"\s*[-|]\s*", text)
 
+    # Prioritise product-like parts
     product_keywords = {"dress", "gamis", "set"}
     product_candidates = []
 
@@ -133,6 +134,7 @@ def short_nama_iklan(nama):
         if not any(w in product_keywords for w in words_lower):
             continue
 
+        # drop store prefix
         while words_lower and words_lower[0] in store_blacklist:
             words_lower.pop(0)
             words.pop(0)
@@ -152,6 +154,7 @@ def short_nama_iklan(nama):
         best_words = product_candidates[-1]
         return " ".join(best_words[:3])
 
+    # fallback scoring
     def score(part):
         s = 0
         for w in part.lower().split():
@@ -170,9 +173,8 @@ def short_nama_iklan(nama):
     best = max(parts, key=score)
     return " ".join(best.split()[:3])
 
-
 # =========================
-# STYLING DATA_IKLAN
+# STYLING DATA_IKLAN (for Data sheet)
 # =========================
 def highlight_row(row):
     styles = [''] * len(row)
@@ -182,10 +184,35 @@ def highlight_row(row):
     gmv = row.get('Penjualan Langsung (GMV Langsung)')
     cost = row.get('Biaya')
 
-    # jika kolom belum ada / NaN -> jangan crash
-    if pd.isna(roas) or pd.isna(sales) or pd.isna(cost):
+    # safety: if sales or cost missing -> can't decide special cases
+    if pd.isna(sales) or pd.isna(cost):
         return styles
 
+    # 🟢 HIJAU TIPE A — cost == 0 & sales > 0 -> dark green text (apply even if ROAS NaN)
+    if (cost == 0) and (sales > 0):
+        return ['color: #006400'] * len(row)
+
+    # 🔴 MERAH TIPE A — rugi keras (text red)
+    if sales == 0 and cost >= 10000:
+        return ['color: #FF0000'] * len(row)
+
+    # ⚪ NETRAL — pemanasan
+    if sales == 0 and cost < 10000:
+        return styles
+
+    # 🟥🟨🟩 WARNA ROAS (background) — only if ROAS is numeric
+    if pd.notna(roas):
+        try:
+            if roas < 8:
+                styles = ['background-color: red'] * len(row)
+            elif roas < 10:
+                styles = ['background-color: yellow'] * len(row)
+            else:
+                styles = ['background-color: lightgreen'] * len(row)
+        except Exception:
+            pass
+
+    # 🔵 OVERLAY BIRU — assist only (only highlight Nama Iklan & GMV col)
     try:
         nama_idx = row.index.get_loc('Nama Iklan')
     except Exception:
@@ -195,24 +222,7 @@ def highlight_row(row):
     except Exception:
         gmv_idx = None
 
-    # 🔴 MERAH TIPE A — rugi keras
-    if sales == 0 and cost >= 10000:
-        return ['color: red'] * len(row)
-
-    # ⚪ NETRAL — pemanasan
-    if sales == 0 and cost < 10000:
-        return styles   # important: keep neutral
-
-    # 🟥🟨🟩 WARNA ROAS
-    if roas < 8:
-        styles = ['background-color: red'] * len(row)
-    elif roas < 10:
-        styles = ['background-color: yellow'] * len(row)
-    else:
-        styles = ['background-color: lightgreen'] * len(row)
-
-    # 🔵 OVERLAY BIRU — assist only (hanya highlight Nama Iklan & GMV col)
-    if sales > 0 and (gmv == 0 or pd.isna(gmv)):
+    if sales > 0 and (pd.isna(gmv) or gmv == 0):
         if nama_idx is not None:
             styles[nama_idx] = 'background-color: lightblue'
         if gmv_idx is not None:
@@ -221,7 +231,7 @@ def highlight_row(row):
     return styles
 
 # =========================
-# KATEGORI IKLAN
+# KATEGORI IKLAN (for ringkasan)
 # =========================
 def get_iklan_color(row, csv_mode):
     roas = row.get('Efektifitas Iklan')
@@ -232,18 +242,22 @@ def get_iklan_color(row, csv_mode):
     if pd.isna(sales) or pd.isna(cost):
         return None
 
-    # TANPA KONVERSI BESAR → keluar dari ringkasan
+    # HIJAU TIPE A => exclude from ringkasan (go to its own sheet)
+    if (cost == 0) and (sales > 0):
+        return None
+
+    # TANPA KONVERSI BESAR → exclude from ringkasan
     if sales == 0 and cost >= 10000:
         return None
 
+    # pemanasan
     if sales == 0 and cost < 10000:
         return None
 
-    # CSV Grup: jika ROAS missing, fallback ke sales>0 -> HIJAU
+    # CSV Grup mode: if ROAS not present then fallback to sales>0 => HIJAU
     if csv_mode == "CSV Grup Iklan (hanya iklan produk)":
         if pd.isna(roas):
             return "HIJAU" if sales > 0 else None
-        # else fall through to roas logic
 
     # ROAS-based
     if pd.isna(roas) or roas < 8:
@@ -276,30 +290,39 @@ if uploaded_file:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors="coerce")
 
-            # IS_BIRU
+            # ===== compute HIJAU_TIPE_A robustly from FULL df (not from df_nonagg) =====
+            # require cost not-NaN and exactly zero, and sales > 0
+            df["IS_HIJAU_TIPE_A"] = (
+                df.get("Biaya").notna() &
+                (df.get("Biaya") == 0) &
+                (df.get("Produk Terjual") > 0)
+            )
+
+            # IS_BIRU (assist rows)
             df["IS_BIRU"] = (
                 (df.get("Produk Terjual", 0) > 0) &
                 (df.get("Penjualan Langsung (GMV Langsung)", 0) == 0)
             )
 
-            # Nama Ringkasan: jangan rubah Nama Iklan asli for aggregates
+            # Nama Ringkasan: jangan rubah Nama Iklan asli for aggregate rows
             df["Nama Ringkasan"] = df["Nama Iklan"].where(
                 df["IS_AGGREGATE"],
                 df["Nama Iklan"].apply(short_nama_iklan)
             )
 
-            # Kategori (apply with csv_mode)
+            # Kategori (apply with csv_mode) — this returns None for rows excluded from ringkasan
             df["Kategori"] = df.apply(lambda row: get_iklan_color(row, csv_mode), axis=1)
 
-            # >>> CHANGE HERE <<<:
-            # Hanya exclude aggregate rows dari ringkasan/tanpa_konversi jika user memilih CSV Grup Iklan
+            # BUILD df_nonagg used for RINGKASAN and >10K:
             if csv_mode == "CSV Grup Iklan (hanya iklan produk)":
                 df_nonagg = df[~df["IS_AGGREGATE"]].copy()
             else:
-                # CSV Keseluruhan: include aggregate rows in summaries (user requested)
                 df_nonagg = df.copy()
 
-            # --- build ordered flat list (MERAH -> KUNING -> HIJAU -> BIRU) ONLY FOR numbering mode ---
+            # ALWAYS exclude HIJAU_TIPE_A from ringkasan/tanpa_konversi logic
+            df_nonagg = df_nonagg[~df_nonagg["IS_HIJAU_TIPE_A"]].copy()
+
+            # build ordered list for numbering (MERAH->KUNING->HIJAU->BIRU) from df_nonagg
             ordered_for_numbering = []
             for kat in ["MERAH", "KUNING", "HIJAU"]:
                 for name in df_nonagg[df_nonagg["Kategori"] == kat]["Nama Ringkasan"]:
@@ -316,22 +339,27 @@ if uploaded_file:
                     numbered = f"{idx}. {item['nama']}"
                     per_col[item["kategori"]].append(numbered)
             else:
-                # CSV Grup Iklan (hanya iklan produk): no numbering, comma-separated (trailing comma per item)
+                # CSV Grup Iklan: comma-separated with trailing commas (single-cell-per-color)
                 for kat in ["MERAH", "KUNING", "HIJAU"]:
                     names = df_nonagg[df_nonagg["Kategori"] == kat]["Nama Ringkasan"].tolist()
-                    # ensure each has trailing comma
                     per_col[kat] = [f"{n}," for n in names]
-                # BIRU (IS_BIRU)
                 names_biru = df_nonagg[df_nonagg["IS_BIRU"]]["Nama Ringkasan"].tolist()
                 per_col["BIRU"] = [f"{n}," for n in names_biru]
 
-            # >10K tanpa konversi (use df_nonagg as per-mode)
+            # >10K tanpa konversi (use df_nonagg) — consistent with mode
             tanpa_konversi_df = (
                 df_nonagg[(df_nonagg.get("Produk Terjual", 0) == 0) & (df_nonagg.get("Biaya", 0) >= 10000)]
                 [["Nama Ringkasan", "Biaya"]]
                 .rename(columns={"Nama Ringkasan": "Nama Iklan"})
                 .sort_values("Biaya", ascending=False)
             )
+
+            # HIJAU TIPE A sheet: ALWAYS computed from FULL df (so it shows up for both modes)
+            hijau_cols = ["Nama Ringkasan", "Produk Terjual", "Efektifitas Iklan", "Biaya"]
+            available_cols = [c for c in hijau_cols if c in df.columns]
+            hijau_tipe_a_df = df[(df.get("Biaya").notna()) & (df.get("Biaya") == 0) & (df.get("Produk Terjual", 0) > 0)][available_cols].copy()
+            if "Nama Ringkasan" in hijau_tipe_a_df.columns:
+                hijau_tipe_a_df = hijau_tipe_a_df.rename(columns={"Nama Ringkasan": "Nama Iklan"})
 
             # =========================
             # EXPORT EXCEL
@@ -342,7 +370,7 @@ if uploaded_file:
             filename = f"{base_name}.xlsx"
 
             with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                # Sheet 1 — DATA (keep original Nama Iklan column in sheet; includes aggregate rows)
+                # Sheet 1 — DATA (keep original Nama Iklan column; includes aggregates)
                 df.style.apply(highlight_row, axis=1).to_excel(
                     writer, sheet_name="DATA_IKLAN", index=False
                 )
@@ -351,7 +379,6 @@ if uploaded_file:
                 wb = writer.book
                 from openpyxl.styles import Font, Alignment
 
-                # remove if exists
                 if "RINGKASAN_IKLAN" in wb.sheetnames:
                     wb.remove(wb["RINGKASAN_IKLAN"])
                 ws_ring = wb.create_sheet("RINGKASAN_IKLAN")
@@ -386,9 +413,7 @@ if uploaded_file:
                     for c_idx, key in enumerate(headers, start=1):
                         items = per_col.get(key, [])
                         if items:
-                            # items already have trailing commas; join with space
                             joined = " ".join(items)
-                            # ensure trailing comma at end
                             if not joined.strip().endswith(","):
                                 joined = joined + ","
                             cell = ws_ring.cell(row=2, column=c_idx, value=joined)
@@ -397,25 +422,32 @@ if uploaded_file:
                         else:
                             ws_ring.cell(row=2, column=c_idx, value="")
 
-                # adjust column widths a bit (optional)
+                # adjust column widths
                 for i in range(1, 5):
                     ws_ring.column_dimensions[chr(64 + i)].width = 40
 
-                # Sheet 3 — >10K_TANPA_KONVERSI (from df_nonagg)
-                # For CSV Keseluruhan this will be vertical table including aggregates;
-                # For CSV Grup Iklan this will be the comma/single-cell representation if you prefer — current behavior keeps it vertical.
+                # Sheet: >10K_TANPA_KONVERSI (from df_nonagg)
                 tanpa_konversi_df.to_excel(
                     writer,
                     sheet_name=">10K_TANPA_KONVERSI",
                     index=False
                 )
-
-                # color >10k text red
                 ws_tc = writer.book[">10K_TANPA_KONVERSI"]
                 for r in range(2, ws_tc.max_row + 1):
                     for c in range(1, ws_tc.max_column + 1):
                         cell = ws_tc.cell(row=r, column=c)
                         cell.font = Font(color="FF0000")
+
+                # NEW sheet: SALES_0_BIAYA (HIJAU TIPE A) — always from full df
+                # --> write even if empty so sheet exists
+                hijau_tipe_a_df.to_excel(writer, sheet_name="SALES_0_BIAYA", index=False)
+                ws_hi = writer.book["SALES_0_BIAYA"]
+                # color dark green text if there are rows (if header-only, loop won't run)
+                from openpyxl.styles import Font as _Font
+                for r in range(2, ws_hi.max_row + 1):
+                    for c in range(1, ws_hi.max_column + 1):
+                        cell = ws_hi.cell(row=r, column=c)
+                        cell.font = _Font(color="006400")  # dark green text
 
             buffer.seek(0)
 
