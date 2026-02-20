@@ -1101,7 +1101,7 @@ def app_tiktok():
     # ==========================================
     # HALAMAN 3: DAILY ADS COMPARATOR
     # ==========================================
-    elif st.session_state.page_tiktok == "📅 Daily Ads Comparator":
+    elif st.session_state.page_tiktok == "📅 Daily Comparator":
         st.header("Ads Performance Comparator — DAILY FOCUS")
         st.markdown("""
         Upload TikTok exports per hari (header row 3, data row 4). Cache akan otomatis menyimpan dan menggabungkan datanya.
@@ -1419,4 +1419,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
