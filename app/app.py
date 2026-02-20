@@ -945,7 +945,7 @@ def app_tiktok():
     # -----------------------------
     # NAVBAR MINI TIKTOK (Ada 3 Tab Sekarang)
     # -----------------------------
-    PAGES_TIKTOK = ["📊 Pewarnaan ROI (PURE)", "🛠️ Excel Fixer: Campaign ID & Comma", "📅 Daily Ads Comparator"]
+    PAGES_TIKTOK = ["📊 Pewarnaan ROI (PURE)", "🛠️ Excel Fixer: Campaign ID & Comma", "📅 Daily Comparator"]
     if "page_tiktok" not in st.session_state:
         st.session_state.page_tiktok = PAGES_TIKTOK[0]
 
@@ -1419,3 +1419,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
