@@ -605,9 +605,17 @@ def app_shopee_cpas():
 
 # -----------------------------
 # APP 2: META KPI Highlight (wrapped)
-# -----------------------------
+
+
+import pandas as pd
+import streamlit as st
+from io import BytesIO
 
 def app_meta():
+    from openpyxl import Workbook
+    from openpyxl.styles import PatternFill
+    from openpyxl.utils import get_column_letter
+
     st.title("📊 Upload Excel & KPI Overlay Highlighting — META")
 
     st.markdown(
@@ -616,214 +624,273 @@ def app_meta():
         /* Scoped META styling */
         html, body, .stApp, .reportview-container, .main, .block-container { background-color: #0066E7 !important; }
 
-        /* Sidebar (left navbar) — match Shopee behavior but with Meta blue */
-        section[data-testid="stSidebar"] > div:first-child {
-            background-color: #0066E7 !important;
-        }
-        section[data-testid="stSidebar"] * {
-            color: #ffffff !important;
-        }
+        /* Sidebar (left navbar) */
+        section[data-testid="stSidebar"] > div:first-child { background-color: #0066E7 !important; }
+        section[data-testid="stSidebar"] * { color: #ffffff !important; }
 
-        /* Uploader: paksa seluruh area dropzone menjadi putih & teks biru */
-        div[data-testid="stFileUploader"],
-        div[data-testid="stFileUploader"] > div,
-        div[data-testid="stFileUploader"] div[role="button"],
+        /* Uploader */
         div[data-testid="stFileUploader"] .upload-container,
-        div[data-testid="stFileUploader"] .uploadDropZone,
-        div[data-testid="stFileUploader"] .stFileUploader,
-        .stFileUploader,
-        .stFileUploader > div,
-        .stFileUploader div[role="button"] {
-            background-color: #ffffff !important;    /* putih */
-            color: #0066E7 !important;                /* teks biru */
+        .stFileUploader > div {
+            background-color: #ffffff !important;
+            color: #0066E7 !important;
             border-radius: 8px !important;
-            padding: 10px 14px !important;
             border: 1px solid rgba(0,102,231,0.18) !important;
-            box-shadow: none !important;
         }
+        .stFileUploader p, .stFileUploader label, .stFileUploader span { color: #0066E7 !important; }
+        .stFileUploader button { background-color: #ffffff !important; color: #0066E7 !important; border: 1px solid #0066E7 !important; }
 
-        /* teks di dalam uploader */
-        div[data-testid="stFileUploader"] p,
-        div[data-testid="stFileUploader"] label,
-        div[data-testid="stFileUploader"] span,
-        .stFileUploader p,
-        .stFileUploader label,
-        .stFileUploader span {
-            color: #0066E7 !important;
-        }
-
-        /* tombol 'Browse files' di uploader */
-        div[data-testid="stFileUploader"] button,
-        .stFileUploader button,
-        div[data-testid="stFileUploader"] .stButton>button {
-            background-color: #ffffff !important;
-            color: #0066E7 !important;
-            border: 1px solid #0066E7 !important;
-            box-shadow: none !important;
-        }
-
-        /* Pastikan area preview / tabel tetap putih dan terbaca */
-        .stDataFrame, .stDataFrame table, .stDataFrame thead, .stDataFrame tbody, .ag-root {
-            background-color: #ffffff !important;
-            color: #000000 !important;
-        }
+        /* Dataframe */
+        .stDataFrame, .stDataFrame table, .ag-root { background-color: #ffffff !important; color: #000000 !important; }
+        
+        /* Tab Navigation */
+        div[data-testid="stTabs"] button { color: #ffffff !important; font-weight: bold; }
+        div[data-testid="stTabs"] button[aria-selected="true"] { color: #FFD700 !important; border-bottom-color: #FFD700 !important; }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    uploaded_file = st.file_uploader(
-        "Upload file Excel (.xlsx)",
-        type=["xlsx"],
-        key="meta_uploader"
-    )
-
-    DECIMAL_COLS = [
-        "CTR (Rasio Klik Tayang Tautan)",
-        "CPM (Biaya Per 1.000 Tayangan)",
-        "ROAS Pembelian Khusus untuk Item Bersama",
-        "Frekuensi",
-    ]
-
     def is_number(x):
         try:
-            if pd.isna(x):
-                return False
+            if pd.isna(x): return False
             float(x)
             return True
         except:
             return False
 
-    def highlight_cells(val, column):
-        try:
-            v = float(val)
-        except:
+    # Kolom yang DIIZINKAN memiliki desimal
+    KEEP_DECIMAL_COLS = ["Frekuensi", "Tingkat klik tayang outbound"]
+
+    tab_lama, tab_baru = st.tabs(["📊 Aplikasi Standar", "📈 Aplikasi Custom (Biaya per hasil)"])
+
+    # =========================================================================
+    # TAB 1: APLIKASI LAMA (STANDAR) - Header di baris 1
+    # =========================================================================
+    with tab_lama:
+        uploaded_file_lama = st.file_uploader("Upload file Excel (.xlsx) - Standar", type=["xlsx"], key="meta_uploader_lama")
+
+        def highlight_cells_lama(val, column):
+            try: v = float(val)
+            except: return ""
+
+            if column == "CPM (Biaya Per 1.000 Tayangan)" and v > 15000: return "background-color: #ffc7ce"
+            if column == "CTR (Rasio Klik Tayang Tautan)" and v < 0.5: return "background-color: #ffc7ce"
+            if column == "Frekuensi" and v > 3: return "background-color: #ffc7ce"
+            if column == "ROAS Pembelian Khusus untuk Item Bersama" and v >= 10: return "background-color: #c6efce"
             return ""
 
-        if column == "CPM (Biaya Per 1.000 Tayangan)" and v > 15000:
-            return "background-color: #ffc7ce"
-        if column == "CTR (Rasio Klik Tayang Tautan)" and v < 0.5:
-            return "background-color: #ffc7ce"
-        if column == "Frekuensi" and v > 3:
-            return "background-color: #ffc7ce"
-        if (
-            column == "ROAS Pembelian Khusus untuk Item Bersama"
-            and v >= 10
-        ):
-            return "background-color: #c6efce"
+        def format_cells_for_preview_lama(val, column):
+            if pd.isna(val): return ""
+            try: v = float(val)
+            except: return val
+            
+            if "%ATC" in str(column):
+                if v <= 1: v = v * 100
+                return f"{v:.2f}%"
+            
+            if column in KEEP_DECIMAL_COLS: 
+                return f"{v:.2f}"
+            return f"{v:.0f}"
 
-        return ""
+        def excel_highlight_and_write_lama(df):
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "KPI Highlight"
 
-    def format_cells_for_preview(val, column):
-        if pd.isna(val):
-            return ""
-        try:
-            v = float(val)
-        except:
-            return val
-        if "%ATC" in str(column):
-            if v <= 1:
-                v = v * 100
-            return f"{v:.2f}%"
-        if column in DECIMAL_COLS:
-            return f"{v:.2f}"
-        return val
-
-    def excel_highlight_and_write(df):
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "KPI Highlight"
-
-        # Write header
-        for c_idx, col in enumerate(df.columns, start=1):
-            ws.cell(row=1, column=c_idx, value=col)
-
-        red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-        green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-
-        for r_idx, (_, row) in enumerate(df.iterrows(), start=2):
             for c_idx, col in enumerate(df.columns, start=1):
-                raw_val = row[col]
-                cell = ws.cell(row=r_idx, column=c_idx)
+                ws.cell(row=1, column=c_idx, value=col)
 
-                if is_number(raw_val):
-                    v = float(raw_val)
-                    if "%ATC" in str(col):
-                        if v > 1:
-                            cell.value = v / 100.0
+            red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+            green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+
+            for r_idx, (_, row) in enumerate(df.iterrows(), start=2):
+                for c_idx, col in enumerate(df.columns, start=1):
+                    raw_val = row[col]
+                    cell = ws.cell(row=r_idx, column=c_idx)
+
+                    if is_number(raw_val):
+                        v = float(raw_val)
+                        if "%ATC" in str(col):
+                            cell.value = v / 100.0 if v > 1 else v
+                            cell.number_format = "0.00%"
+                        elif col in KEEP_DECIMAL_COLS:
+                            cell.value = v
+                            cell.number_format = "0.##" 
                         else:
                             cell.value = v
-                        cell.number_format = "0.00%"
-                    elif col in DECIMAL_COLS:
-                        cell.value = v
-                        cell.number_format = "0.##"
+                            cell.number_format = "0" 
+
+                        try: eval_v = float(raw_val)
+                        except: eval_v = None
+
+                        if col == "CPM (Biaya Per 1.000 Tayangan)" and eval_v is not None and eval_v > 15000: cell.fill = red_fill
+                        if col == "CTR (Rasio Klik Tayang Tautan)" and eval_v is not None and eval_v < 0.5: cell.fill = red_fill
+                        if col == "Frekuensi" and eval_v is not None and eval_v > 3: cell.fill = red_fill
+                        if col == "ROAS Pembelian Khusus untuk Item Bersama" and eval_v is not None and eval_v >= 10: cell.fill = green_fill
                     else:
-                        cell.value = v
+                        cell.value = raw_val
 
-                    try:
-                        eval_v = float(raw_val)
-                    except:
-                        eval_v = None
+            for i, col in enumerate(df.columns, start=1):
+                ws.column_dimensions[get_column_letter(i)].width = min(max(15, len(str(col)) + 2), 50)
 
-                    if col == "CPM (Biaya Per 1.000 Tayangan)" and eval_v is not None and eval_v > 15000:
-                        cell.fill = red_fill
-                    if col == "CTR (Rasio Klik Tayang Tautan)" and eval_v is not None and eval_v < 0.5:
-                        cell.fill = red_fill
-                    if col == "Frekuensi" and eval_v is not None and eval_v > 3:
-                        cell.fill = red_fill
-                    if (
-                        col == "ROAS Pembelian Khusus untuk Item Bersama"
-                        and eval_v is not None
-                        and eval_v >= 10
-                    ):
-                        cell.fill = green_fill
+            out = BytesIO()
+            wb.save(out)
+            out.seek(0)
+            return out
 
-                else:
-                    cell.value = raw_val
+        if uploaded_file_lama:
+            try:
+                df_lama = pd.read_excel(uploaded_file_lama, header=0) 
+                num_cols = df_lama.select_dtypes(include="number").columns
+                df_lama[num_cols] = df_lama[num_cols].fillna(0)
 
-        for i, col in enumerate(df.columns, start=1):
-            col_letter = get_column_letter(i)
-            max_length = max((len(str(x)) if not pd.isna(x) else 0 for x in [col] + df[col].astype(str).tolist()), default=10)
-            ws.column_dimensions[col_letter].width = min(max(15, max_length + 2), 50)
+                styled_df_lama = df_lama.style.apply(lambda col: [highlight_cells_lama(v, col.name) for v in col], axis=0)
+                for col in df_lama.columns:
+                    styled_df_lama = styled_df_lama.format(lambda v, c=col: format_cells_for_preview_lama(v, c), subset=[col])
 
-        out = BytesIO()
-        wb.save(out)
-        out.seek(0)
-        return out
+                st.subheader("📌 Preview Data - Standar")
+                st.dataframe(styled_df_lama, use_container_width=True)
 
-    # Import openpyxl helpers locally to avoid top-level import conflicts
-    from openpyxl import Workbook
-    from openpyxl.styles import PatternFill
-    from openpyxl.utils import get_column_letter
+                st.download_button(
+                    label="⬇️ Download Excel (Standar)",
+                    data=excel_highlight_and_write_lama(df_lama),
+                    file_name="kpi_highlight_standard.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="download_meta_lama"
+                )
+            except Exception as e:
+                st.error(f"Gagal membaca file: {e}")
 
-    if uploaded_file:
-        try:
-            df = pd.read_excel(uploaded_file, header=0)
-        except Exception as e:
-            st.error(f"Gagal membaca file: {e}")
-            return
+    # =========================================================================
+    # TAB 2: APLIKASI BARU (CUSTOM) - Header di baris 3
+    # =========================================================================
+    with tab_baru:
+        uploaded_file_baru = st.file_uploader("Upload file Excel (.xlsx) - Custom (Header Baris 3)", type=["xlsx"], key="meta_uploader_baru")
 
-        num_cols = df.select_dtypes(include="number").columns
-        df[num_cols] = df[num_cols].fillna(0)
+        def style_df_baru(df):
+            styles = pd.DataFrame('', index=df.index, columns=df.columns)
+            
+            # Cari kolom yang berisi nama kampanye (Campaign Name)
+            camp_col = next((c for c in df.columns if "kampanye" in str(c).lower() or "campaign" in str(c).lower()), None)
 
-        styled_df = df.style.apply(lambda col: [highlight_cells(v, col.name) for v in col], axis=0)
-        for col in df.columns:
-            styled_df = styled_df.format(lambda v, c=col: format_cells_for_preview(v, c), subset=[col])
+            for idx, row in df.iterrows():
+                for col in df.columns:
+                    val = row[col]
+                    if is_number(val):
+                        v = float(val)
+                        if col == "CPM (Biaya Per 1.000 Tayangan)" and v > 15000: styles.loc[idx, col] = "background-color: #ffc7ce"
+                        if col == "CTR (Rasio Klik Tayang Tautan)" and v < 0.5: styles.loc[idx, col] = "background-color: #ffc7ce"
+                        if col == "Frekuensi" and v > 3: styles.loc[idx, col] = "background-color: #ffc7ce"
+                            
+                        # Rule Baru untuk Biaya per hasil berdasarkan Nama Kampanye
+                        if col == "Biaya per hasil" and camp_col is not None:
+                            camp_name = str(row[camp_col]).lower() # Jadikan huruf kecil agar pengecekan lebih aman
+                            
+                            # Jika nama kampanye mengandung kata "visit"
+                            if "visit" in camp_name:
+                                if v > 500:
+                                    styles.loc[idx, col] = "background-color: #ffc7ce"
+                            # Jika nama kampanye TIDAK mengandung kata "visit"
+                            else:
+                                if v > 5000:
+                                    styles.loc[idx, col] = "background-color: #ffc7ce"
+                                    
+            return styles
 
-        st.subheader("📌 Preview Data")
-        st.dataframe(styled_df, use_container_width=True)
+        def format_cells_for_preview_baru(val, column):
+            if pd.isna(val): return ""
+            try: v = float(val)
+            except: return val
+            
+            if "%ATC" in str(column):
+                if v <= 1: v = v * 100
+                return f"{v:.2f}%"
+            
+            if column in KEEP_DECIMAL_COLS: 
+                return f"{v:.2f}"
+            return f"{v:.0f}"
 
-        # Prepare Excel bytes (with Excel-native percent formatting + highlights)
-        excel_bytes = excel_highlight_and_write(df)
+        def excel_highlight_and_write_baru(df):
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "KPI Highlight Custom"
 
-        st.download_button(
-            label="⬇️ Download Excel (dengan warna & format angka)",
-            data=excel_bytes,
-            file_name="kpi_highlight.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="download_meta"
-        )
+            for c_idx, col in enumerate(df.columns, start=1):
+                ws.cell(row=3, column=c_idx, value=col)
 
+            red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+            
+            # Cari kolom kampanye untuk fungsi penulisan Excel
+            camp_col = next((c for c in df.columns if "kampanye" in str(c).lower() or "campaign" in str(c).lower()), None)
+
+            for r_idx, (_, row) in enumerate(df.iterrows(), start=4):
+                for c_idx, col in enumerate(df.columns, start=1):
+                    raw_val = row[col]
+                    cell = ws.cell(row=r_idx, column=c_idx)
+
+                    if is_number(raw_val):
+                        v = float(raw_val)
+                        if "%ATC" in str(col):
+                            cell.value = v / 100.0 if v > 1 else v
+                            cell.number_format = "0.00%"
+                        elif col in KEEP_DECIMAL_COLS:
+                            cell.value = v
+                            cell.number_format = "0.##" 
+                        else:
+                            cell.value = v
+                            cell.number_format = "0" 
+
+                        try: eval_v = float(raw_val)
+                        except: eval_v = None
+
+                        if eval_v is not None:
+                            if col == "CPM (Biaya Per 1.000 Tayangan)" and eval_v > 15000: cell.fill = red_fill
+                            if col == "CTR (Rasio Klik Tayang Tautan)" and eval_v < 0.5: cell.fill = red_fill
+                            if col == "Frekuensi" and eval_v > 3: cell.fill = red_fill
+                            
+                            # Rule Baru untuk Biaya per hasil saat di-download ke Excel
+                            if col == "Biaya per hasil" and camp_col is not None:
+                                camp_name = str(row[camp_col]).lower()
+                                if "visit" in camp_name:
+                                    if eval_v > 500:
+                                        cell.fill = red_fill
+                                else:
+                                    if eval_v > 5000:
+                                        cell.fill = red_fill
+                    else:
+                        cell.value = raw_val
+
+            for i, col in enumerate(df.columns, start=1):
+                ws.column_dimensions[get_column_letter(i)].width = min(max(15, len(str(col)) + 2), 50)
+
+            out = BytesIO()
+            wb.save(out)
+            out.seek(0)
+            return out
+
+        if uploaded_file_baru:
+            try:
+                df_baru = pd.read_excel(uploaded_file_baru, header=2) 
+                num_cols = df_baru.select_dtypes(include="number").columns
+                df_baru[num_cols] = df_baru[num_cols].fillna(0)
+
+                styled_df_baru = df_baru.style.apply(style_df_baru, axis=None)
+                for col in df_baru.columns:
+                    styled_df_baru = styled_df_baru.format(lambda v, c=col: format_cells_for_preview_baru(v, c), subset=[col])
+
+                st.subheader("📌 Preview Data - Custom")
+                st.dataframe(styled_df_baru, use_container_width=True)
+
+                st.download_button(
+                    label="⬇️ Download Excel (Custom Biaya per hasil)",
+                    data=excel_highlight_and_write_baru(df_baru),
+                    file_name="kpi_highlight_custom.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="download_meta_baru"
+                )
+            except Exception as e:
+                st.error(f"Gagal membaca file: {e}. Pastikan header tabel berada tepat di baris ke-3 Excel Anda.")
+                
 # -----------------------------
 # APP 3: TikTok (wrapped)
 # -----------------------------
@@ -945,7 +1012,7 @@ def app_tiktok():
     # -----------------------------
     # NAVBAR MINI TIKTOK (Ada 3 Tab Sekarang)
     # -----------------------------
-    PAGES_TIKTOK = ["📊 Pewarnaan ROI (PURE)", "🛠️ Excel Fixer: Campaign ID & Comma", "📅 Daily Comparator"]
+    PAGES_TIKTOK = ["📊 Pewarnaan ROI (PURE)", "🛠️ Excel Fixer: Campaign ID & Comma", "📅 Daily Ads Comparator"]
     if "page_tiktok" not in st.session_state:
         st.session_state.page_tiktok = PAGES_TIKTOK[0]
 
@@ -1101,7 +1168,7 @@ def app_tiktok():
     # ==========================================
     # HALAMAN 3: DAILY ADS COMPARATOR
     # ==========================================
-    elif st.session_state.page_tiktok == "📅 Daily Comparator":
+    elif st.session_state.page_tiktok == "📅 Daily Ads Comparator":
         st.header("Ads Performance Comparator — DAILY FOCUS")
         st.markdown("""
         Upload TikTok exports per hari (header row 3, data row 4). Cache akan otomatis menyimpan dan menggabungkan datanya.
@@ -1419,5 +1486,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
