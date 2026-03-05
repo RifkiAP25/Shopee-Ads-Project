@@ -9,14 +9,14 @@ import io
 import os
 import re
 from io import BytesIO
-from datetime import datetime, date         
+from datetime import datetime, date
 from typing import Optional
-from collections import OrderedDict         
-from openpyxl import load_workbook          
+from collections import OrderedDict
+from openpyxl import load_workbook, Workbook
 from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.datavalidation import DataValidation # <-- Tambahan import
-from pandas.io.formats.style import Styler  
+from openpyxl.worksheet.datavalidation import DataValidation
+from pandas.io.formats.style import Styler
 
 # Set global page config once
 st.set_page_config(page_title="Multi-Platform Excel Utilities", layout="wide")
@@ -42,12 +42,12 @@ def navbar():
     st.markdown("---")
 
 # -----------------------------
-# APP 1: Shopee & CPAS (original code wrapped into function + Fitur Baru)
+# APP 1: Shopee & CPAS (original code wrapped into function)
 # -----------------------------
 
 def app_shopee_cpas():
     # --- Page config and CSS for Shopee theme (scoped to this page) ---
-    st.title("📁 Excel Utilities — Dot/Comma • Sort • Filter • CSV Iklan • Rapi Variasi")
+    st.title("📁 Excel Utilities — Dot/Comma • Sort • Filter • CSV Iklan")
     st.write("Pilih fitur di sidebar")
 
     st.markdown("""
@@ -66,9 +66,7 @@ def app_shopee_cpas():
     </style>
     """, unsafe_allow_html=True)
 
-    # ---------------------------
-    # Helpers (kumpulan helper asli + helper fitur baru)
-    # ---------------------------
+    # Helpers (copied from original)
     def read_uploaded_bytes(uploaded_file) -> Optional[bytes]:
         if uploaded_file is None:
             return None
@@ -91,6 +89,9 @@ def app_shopee_cpas():
             if isinstance(x, str):
                 return x.replace('.', 'DOT').replace(',', '.').replace('DOT', ',')
             return x
+        # Use map for newer Pandas or applymap for older
+        if hasattr(df, 'map'):
+            return df.map(swap_cell)
         return df.applymap(swap_cell)
 
     @st.cache_data
@@ -130,8 +131,11 @@ def app_shopee_cpas():
         text = re.sub(r"\[.*?\]", "", text).strip()
 
         feature_blacklist = {"busui","friendly","bahan","soft","ultimate","ultimates","motif","size","ukuran","promo","diskon","broad","testing","rayon","katun","cotton","silk","sustra","viscose","linen","polyester","jersey","crepe","chiffon","woolpeach","baloteli","babyterry","pink","hitam","black","putih","white","navy","biru","blue","merah","red","hijau","green","coklat","brown","abu","abu-abu","grey","gray","cream","krem","beige","maroon","ungu","purple","tosca","olive","sage"}
+
         store_blacklist = {"official","shop","store","boutique","fashion","my","zahir","myzahir","by","original","premium"}
+
         category_keywords = {"gamis","dress","tunik","abaya","set","blouse","khimar","rok","pashmina","hijab","outer",}
+
         context_blacklist = {"terbaru","new","update","launch","launching","viral","hits","best","seller","bestseller","kondangan","lebaran","ramadhan","ramadan","harian","pesta","formal","casual","trend","trending","populer","2024","2025","2026","2027", "2028", "2029", "2030"}
 
         parts = re.split(r"\s*[-|]\s*", text)
@@ -163,11 +167,16 @@ def app_shopee_cpas():
         def score(part):
             s = 0
             for w in part.lower().split():
-                if w in store_blacklist: s -= 3
-                elif w in feature_blacklist: s -= 1
-                elif w in context_blacklist: s -= 2
-                elif w in category_keywords: s += 1
-                else: s += 3
+                if w in store_blacklist:
+                    s -= 3
+                elif w in feature_blacklist:
+                    s -= 1
+                elif w in context_blacklist:
+                    s -= 2
+                elif w in category_keywords:
+                    s += 1
+                else:
+                    s += 3
             return s
 
         best = max(parts, key=score)
@@ -180,26 +189,43 @@ def app_shopee_cpas():
         gmv = row.get('Penjualan Langsung (GMV Langsung)')
         cost = row.get('Biaya')
 
-        if pd.isna(sales) or pd.isna(cost): return styles
-        if (cost == 0) and (sales > 0): return ['color: #006400'] * len(row)
-        if sales == 0 and cost >= 10000: return ['color: #FF0000'] * len(row)
-        if sales == 0 and cost < 10000: return styles
+        if pd.isna(sales) or pd.isna(cost):
+            return styles
+
+        if (cost == 0) and (sales > 0):
+            return ['color: #006400'] * len(row)
+
+        if sales == 0 and cost >= 10000:
+            return ['color: #FF0000'] * len(row)
+
+        if sales == 0 and cost < 10000:
+            return styles
 
         if pd.notna(roas):
             try:
-                if roas < 8: styles = ['background-color: red'] * len(row)
-                elif roas < 10: styles = ['background-color: yellow'] * len(row)
-                else: styles = ['background-color: lightgreen'] * len(row)
-            except Exception: pass
+                if roas < 8:
+                    styles = ['background-color: red'] * len(row)
+                elif roas < 10:
+                    styles = ['background-color: yellow'] * len(row)
+                else:
+                    styles = ['background-color: lightgreen'] * len(row)
+            except Exception:
+                pass
 
-        try: nama_idx = row.index.get_loc('Nama Iklan')
-        except Exception: nama_idx = None
-        try: gmv_idx = row.index.get_loc('Penjualan Langsung (GMV Langsung)')
-        except Exception: gmv_idx = None
+        try:
+            nama_idx = row.index.get_loc('Nama Iklan')
+        except Exception:
+            nama_idx = None
+        try:
+            gmv_idx = row.index.get_loc('Penjualan Langsung (GMV Langsung)')
+        except Exception:
+            gmv_idx = None
 
         if sales > 0 and (pd.isna(gmv) or gmv == 0):
-            if nama_idx is not None: styles[nama_idx] = 'background-color: lightblue'
-            if gmv_idx is not None: styles[gmv_idx] = 'background-color: lightblue'
+            if nama_idx is not None:
+                styles[nama_idx] = 'background-color: lightblue'
+            if gmv_idx is not None:
+                styles[gmv_idx] = 'background-color: lightblue'
         return styles
 
     def get_iklan_color(row, csv_mode):
@@ -207,20 +233,32 @@ def app_shopee_cpas():
         sales = row.get('Produk Terjual')
         cost = row.get('Biaya')
 
-        if pd.isna(sales) or pd.isna(cost): return None
-        if (cost == 0) and (sales > 0): return None
-        if sales == 0 and cost >= 10000: return None
-        if sales == 0 and cost < 10000: return None
-        if csv_mode == "CSV Grup Iklan (hanya iklan produk)":
-            if pd.isna(roas): return "HIJAU" if sales > 0 else None
-        if pd.isna(roas) or roas < 8: return "MERAH"
-        elif roas < 10: return "KUNING"
-        else: return "HIJAU"
+        if pd.isna(sales) or pd.isna(cost):
+            return None
 
-    # --- Helper Fitur Baru: Rapikan Variasi ---
+        if (cost == 0) and (sales > 0):
+            return None
+
+        if sales == 0 and cost >= 10000:
+            return None
+
+        if sales == 0 and cost < 10000:
+            return None
+
+        if csv_mode == "CSV Grup Iklan (hanya iklan produk)":
+            if pd.isna(roas):
+                return "HIJAU" if sales > 0 else None
+
+        if pd.isna(roas) or roas < 8:
+            return "MERAH"
+        elif roas < 10:
+            return "KUNING"
+        else:
+            return "HIJAU"
+
+    # --- HELPER FUNCTIONS BARU: RAPIKAN VARIASI PRODUK ---
     def normalize_cols(df):
-        df = df.rename(columns=lambda c: re.sub(r"\s+", " ", str(c).strip()))
-        return df
+        return df.rename(columns=lambda c: re.sub(r"\s+", " ", str(c).strip()))
 
     def drop_kode_variasi_cols(df):
         cols_to_drop = [c for c in df.columns if c.strip().lower() == "kode variasi"]
@@ -233,7 +271,8 @@ def app_shopee_cpas():
         if "," in s:
             parts = s.rsplit(",", 1)
             base = parts[0].strip()
-        else: base = s
+        else:
+            base = s
         return base
 
     def clean_idr_number(x):
@@ -242,19 +281,18 @@ def app_shopee_cpas():
             if not x or x == '-': return 0.0
             x = x.replace('%', '')
             if ',' in x:
+                x = x.replace('.', '').replace(',', '.')
+            else:
                 x = x.replace('.', '')
-                x = x.replace(',', '.')
-            else: x = x.replace('.', '')
             return x
         return x
 
     def safe_div(a, b):
         try:
-            a = float(a)
-            b = float(b)
-            if b == 0: return 0.0
-            return a / b
-        except Exception: return 0.0
+            a, b = float(a), float(b)
+            return 0.0 if b == 0 else a / b
+        except Exception:
+            return 0.0
 
     def format_percentage(val):
         return f"{val * 100:.2f}%".replace('.', ',')
@@ -267,13 +305,17 @@ def app_shopee_cpas():
         ws = wb.active
 
         header = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
-        if product_merge_col in header: prod_col_idx = header.index(product_merge_col) + 1
-        else: prod_col_idx = None
+        prod_col_idx = header.index(product_merge_col) + 1 if product_merge_col in header else None
+
+        idr_col_indices = []
+        for i, col_name in enumerate(header):
+            if col_name and "IDR" in str(col_name).upper():
+                idr_col_indices.append(i + 1) 
 
         yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
         total_dropdown_fill = PatternFill(start_color="BDE2F5", end_color="BDE2F5", fill_type="solid")
-        var_dropdown_fill = PatternFill(start_color="E6E6E6", end_color="E6E6E6", fill_type="solid")
-        grand_total_fill = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
+        var_dropdown_fill = PatternFill(start_color="E6E6E6", end_color="E6E6E6", fill_type="solid") 
+        grand_total_fill = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid") 
         bold_font = Font(bold=True)
 
         last_col_idx = ws.max_column
@@ -281,13 +323,17 @@ def app_shopee_cpas():
 
         dv = DataValidation(type="list", formula1='"Total,~"', allow_blank=True)
         ws.add_data_validation(dv)
-        if ws.max_row > 2: dv.add(f"{last_col_letter}2:{last_col_letter}{ws.max_row - 1}")
+        
+        if ws.max_row > 2:
+            dv.add(f"{last_col_letter}2:{last_col_letter}{ws.max_row - 1}")
 
         if prod_col_idx:
             start = 2
             while start <= ws.max_row:
                 current = ws.cell(row=start, column=prod_col_idx).value
-                if current == "Total": break
+                if current == "Total":
+                    break
+                    
                 end = start
                 while end + 1 <= ws.max_row and ws.cell(row=end + 1, column=prod_col_idx).value == current:
                     end += 1
@@ -299,16 +345,19 @@ def app_shopee_cpas():
         if highlight_condition is not None:
             for i, row in df.iterrows():
                 excel_row = i + 2
+                
                 if row.get("Kode Produk", "") == "Total":
                     for col in range(1, last_col_idx + 1):
                         cell = ws.cell(row=excel_row, column=col)
                         cell.fill = grand_total_fill
                         cell.font = bold_font
-                    continue
+                    continue 
 
                 is_total = False
-                try: is_total = highlight_condition(row)
-                except Exception: pass
+                try:
+                    is_total = highlight_condition(row)
+                except Exception:
+                    pass
 
                 if is_total:
                     for col in range(1, last_col_idx):
@@ -316,6 +365,17 @@ def app_shopee_cpas():
                     ws.cell(row=excel_row, column=last_col_idx).fill = total_dropdown_fill
                 else:
                     ws.cell(row=excel_row, column=last_col_idx).fill = var_dropdown_fill
+
+        rupiah_format = '_-"Rp"* #,##0_-;-"Rp"* #,##0_-;_-"Rp"* "-"_-;_-@_-'
+        
+        for col_idx in idr_col_indices:
+            col_letter = get_column_letter(col_idx)
+            ws.column_dimensions[col_letter].width = 20 
+            
+            for r in range(2, ws.max_row + 1):
+                cell = ws.cell(row=r, column=col_idx)
+                if isinstance(cell.value, (int, float)):
+                    cell.number_format = rupiah_format
 
         out = io.BytesIO()
         wb.save(out)
@@ -334,29 +394,30 @@ def app_shopee_cpas():
             "Sort Penjualan Produk",
             "Filter Nama Produk (Terjual & ATC)",
             "CSV Iklan → Excel Berwarna",
-            "Rapikan Produk & Variasi" # <-- Fitur Baru Ditambahkan
+            "Rapikan Excel Variasi Produk" # <-- TAMBAHAN BARU
         ],
         key="shopee_app_mode"
     )
 
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Coloring filter (CSV Iklan)")
-    csv_mode_sidebar = st.sidebar.selectbox(
-        "Mode CSV",
-        options=["CSV Keseluruhan (Normal)", "CSV Grup Iklan (hanya iklan produk)"],
-        index=0,
-        key="shopee_csv_mode"
-    )
-    st.sidebar.markdown("Pilih kategori yang ingin disertakan di **RINGKASAN_IKLAN** (untuk preview & export)")
-    include_merah = st.sidebar.checkbox("Sertakan MERAH", value=True, key="inc_merah")
-    include_kuning = st.sidebar.checkbox("Sertakan KUNING", value=True, key="inc_kuning")
-    include_hijau = st.sidebar.checkbox("Sertakan HIJAU", value=True, key="inc_hijau")
-    include_biru = st.sidebar.checkbox("Sertakan BIRU", value=True, key="inc_biru")
-    st.sidebar.markdown("---")
-    st.sidebar.caption("Catatan: coloring filter hanya mempengaruhi sheet RINGKASAN_IKLAN (preview & export).")
+    if app_mode in ["CSV Iklan → Excel Berwarna"]:
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("Coloring filter (CSV Iklan)")
+        csv_mode_sidebar = st.sidebar.selectbox(
+            "Mode CSV",
+            options=["CSV Keseluruhan (Normal)", "CSV Grup Iklan (hanya iklan produk)"],
+            index=0,
+            key="shopee_csv_mode"
+        )
+        st.sidebar.markdown("Pilih kategori yang ingin disertakan di **RINGKASAN_IKLAN** (untuk preview & export)")
+        include_merah = st.sidebar.checkbox("Sertakan MERAH", value=True, key="inc_merah")
+        include_kuning = st.sidebar.checkbox("Sertakan KUNING", value=True, key="inc_kuning")
+        include_hijau = st.sidebar.checkbox("Sertakan HIJAU", value=True, key="inc_hijau")
+        include_biru = st.sidebar.checkbox("Sertakan BIRU", value=True, key="inc_biru")
+        st.sidebar.markdown("---")
+        st.sidebar.caption("Catatan: coloring filter hanya mempengaruhi sheet RINGKASAN_IKLAN (preview & export).")
 
     # ---------------------------
-    # Page modes implementations
+    # Page modes implementations (kept same as original)
     # ---------------------------
     if app_mode == "Dot ↔ Comma Converter":
         st.header("🔁 Excel Dot ↔ Comma Swapper")
@@ -481,14 +542,16 @@ def app_shopee_cpas():
             except Exception as e:
                 st.error(f"Terjadi error: {e}")
 
-    elif app_mode == "Rapikan Produk & Variasi":
-        # --- BLOK FITUR BARU ---
-        st.header("Rapikan file XLSX/CSV — Produk & Variasi")
+    # =========================================================================
+    # FITUR BARU: RAPIKAN EXCEL VARIASI PRODUK
+    # =========================================================================
+    elif app_mode == "Rapikan Excel Variasi Produk":
+        st.header("✨ Rapikan file XLSX/CSV — Produk & Variasi")
         st.markdown(
             "Upload file .xlsx atau .csv lalu tekan **Process**. Hasil bisa diunduh sebagai XLSX yang sudah di-merge, diberi warna, memiliki dropdown warna khusus, serta baris **Grand Total** di akhir."
         )
 
-        uploaded = st.file_uploader("Upload file (.xlsx or .csv)", type=["xlsx", "xls", "csv"], key="variasi_uploader_shopee")
+        uploaded = st.file_uploader("Upload file (.xlsx or .csv)", type=["xlsx", "xls", "csv"], key="rapiin_variasi_shopee")
 
         if uploaded is not None:
             try:
@@ -505,187 +568,211 @@ def app_shopee_cpas():
             st.subheader("Preview (data asli, beberapa baris)")
             st.dataframe(df_raw.head(200))
 
-            if st.button("Process", key="btn_process_variasi"):
-                with st.spinner("Memproses data variasi..."):
-                    df = df_raw.copy()
-                    df = drop_kode_variasi_cols(df)
+            if st.button("Process", key="process_variasi_shopee"):
+                df = df_raw.copy()
+                df = drop_kode_variasi_cols(df)
 
-                    numeric_cols_guess = [
-                        "Pengunjung Produk (Kunjungan)", "Halaman Produk Dilihat",
-                        "Pengunjung Melihat Tanpa Membeli", "Klik Pencarian", "Suka",
-                        "Pengunjung Produk (Menambahkan Produk ke Keranjang)",
-                        "Dimasukkan ke Keranjang (Produk)", "Total Pembeli (Pesanan Dibuat)",
-                        "Produk (Pesanan Dibuat)", "Total Penjualan (Pesanan Dibuat) (IDR)",
-                        "Total Pembeli (Pesanan Siap Dikirim)", "Produk (Pesanan Siap Dikirim)",
-                        "Penjualan (Pesanan Siap Dikirim) (IDR)"
-                    ]
+                numeric_cols_guess = [
+                    "Pengunjung Produk (Kunjungan)",
+                    "Halaman Produk Dilihat",
+                    "Pengunjung Melihat Tanpa Membeli",
+                    "Klik Pencarian",
+                    "Suka",
+                    "Pengunjung Produk (Menambahkan Produk ke Keranjang)",
+                    "Dimasukkan ke Keranjang (Produk)",
+                    "Total Pembeli (Pesanan Dibuat)",
+                    "Produk (Pesanan Dibuat)",
+                    "Total Penjualan (Pesanan Dibuat) (IDR)",
+                    "Total Pembeli (Pesanan Siap Dikirim)",
+                    "Produk (Pesanan Siap Dikirim)",
+                    "Penjualan (Pesanan Siap Dikirim) (IDR)"
+                ]
 
-                    rate_cols_config = {
-                        "Tingkat Pengunjung Melihat Tanpa Membeli": ("Pengunjung Melihat Tanpa Membeli", "Pengunjung Produk (Kunjungan)"),
-                        "Tingkat Konversi Produk Dimasukkan ke Keranjang": ("Pengunjung Produk (Menambahkan Produk ke Keranjang)", "Pengunjung Produk (Kunjungan)"),
-                        "Tingkat Konversi (Pesanan yang Dibuat)": ("Total Pembeli (Pesanan Dibuat)", "Pengunjung Produk (Kunjungan)"),
-                        "Tingkat Konversi (Pesanan Siap Dikirim)": ("Total Pembeli (Pesanan Siap Dikirim)", "Pengunjung Produk (Kunjungan)"),
-                        "Tingkat Konversi (Pesanan Siap Dikirim dibagi Pesanan Dibuat)": ("Total Pembeli (Pesanan Siap Dikirim)", "Total Pembeli (Pesanan Dibuat)")
-                    }
+                rate_cols_config = {
+                    "Tingkat Pengunjung Melihat Tanpa Membeli": ("Pengunjung Melihat Tanpa Membeli", "Pengunjung Produk (Kunjungan)"),
+                    "Tingkat Konversi Produk Dimasukkan ke Keranjang": ("Pengunjung Produk (Menambahkan Produk ke Keranjang)", "Pengunjung Produk (Kunjungan)"),
+                    "Tingkat Konversi (Pesanan yang Dibuat)": ("Total Pembeli (Pesanan Dibuat)", "Pengunjung Produk (Kunjungan)"),
+                    "Tingkat Konversi (Pesanan Siap Dikirim)": ("Total Pembeli (Pesanan Siap Dikirim)", "Pengunjung Produk (Kunjungan)"),
+                    "Tingkat Konversi (Pesanan Siap Dikirim dibagi Pesanan Dibuat)": ("Total Pembeli (Pesanan Siap Dikirim)", "Total Pembeli (Pesanan Dibuat)")
+                }
 
-                    if "Kode Produk" not in df.columns or "Nama Variasi" not in df.columns:
-                        st.error("File harus berisi kolom 'Kode Produk' dan 'Nama Variasi'.")
-                        st.stop()
+                if "Kode Produk" not in df.columns or "Nama Variasi" not in df.columns:
+                    st.error("File harus berisi kolom 'Kode Produk' dan 'Nama Variasi'.")
+                    st.stop()
 
-                    df["__NamaVariasiRaw"] = df["Nama Variasi"].astype(object)
-                    df["NamaVariasiBase"] = df["Nama Variasi"].apply(extract_variation_base)
-                    df["__is_total_row"] = df["NamaVariasiBase"].fillna("").apply(lambda s: True if s == "" else False)
+                df["__NamaVariasiRaw"] = df["Nama Variasi"].astype(object)
+                df["NamaVariasiBase"] = df["Nama Variasi"].apply(extract_variation_base)
+                df["__is_total_row"] = df["NamaVariasiBase"].fillna("").apply(lambda s: True if s == "" else False)
 
-                    product_order = []
-                    seen = set()
-                    for i, r in df.iterrows():
-                        kp = r.get("Kode Produk")
-                        if kp not in seen:
-                            seen.add(kp)
-                            product_order.append(kp)
+                product_order = []
+                seen = set()
+                for i, r in df.iterrows():
+                    kp = r.get("Kode Produk")
+                    if kp not in seen:
+                        seen.add(kp)
+                        product_order.append(kp)
 
-                    variation_mask = ~df["__is_total_row"]
-                    agg_numeric = {}
-                    for c in df.columns:
-                        if c in numeric_cols_guess:
-                            df[c] = df[c].apply(clean_idr_number)
-                            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
-                            agg_numeric[c] = "sum"
+                variation_mask = ~df["__is_total_row"]
+                agg_numeric = {}
+                for c in df.columns:
+                    if c in numeric_cols_guess:
+                        df[c] = df[c].apply(clean_idr_number)
+                        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+                        agg_numeric[c] = "sum"
 
-                    other_keep = ["SKU Induk", "Produk"] + list(rate_cols_config.keys())
-                    agg_other = {c: "first" for c in other_keep if c in df.columns}
+                other_keep = ["SKU Induk", "Produk"] + list(rate_cols_config.keys())
+                agg_other = {c: "first" for c in other_keep if c in df.columns}
 
-                    group_cols = ["Kode Produk", "NamaVariasiBase"]
-                    if variation_mask.any():
-                        grouped = (
-                            df[variation_mask]
-                            .groupby(group_cols, dropna=False, as_index=False)
-                            .agg({**agg_numeric, **agg_other})
-                        )
-                        grouped = grouped.rename(columns={"NamaVariasiBase": "Nama Variasi"})
+                group_cols = ["Kode Produk", "NamaVariasiBase"]
+                if variation_mask.any():
+                    grouped = (
+                        df[variation_mask]
+                        .groupby(group_cols, dropna=False, as_index=False)
+                        .agg({**agg_numeric, **agg_other})
+                    )
+                    grouped = grouped.rename(columns={"NamaVariasiBase": "Nama Variasi"})
+                else:
+                    grouped = pd.DataFrame(columns=["Kode Produk", "Nama Variasi"] + list(agg_numeric.keys()) + list(agg_other.keys()))
+
+                totals = []
+                for kp in product_order:
+                    totals_rows = df[(df["Kode Produk"] == kp) & (df["__is_total_row"])]
+                    if not totals_rows.empty:
+                        tot = {}
+                        tot["Kode Produk"] = kp
+                        for c in df.columns:
+                            if c in other_keep:
+                                tot[c] = totals_rows.iloc[0].get(c)
+                        for c in agg_numeric.keys():
+                            tot[c] = totals_rows[c].astype(float).sum()
+                        tot["Nama Variasi"] = ""
+                        totals.append(pd.Series(tot))
                     else:
-                        grouped = pd.DataFrame(columns=["Kode Produk", "Nama Variasi"] + list(agg_numeric.keys()) + list(agg_other.keys()))
-
-                    totals = []
-                    for kp in product_order:
-                        totals_rows = df[(df["Kode Produk"] == kp) & (df["__is_total_row"])]
-                        if not totals_rows.empty:
-                            tot = {}
-                            tot["Kode Produk"] = kp
-                            for c in df.columns:
-                                if c in other_keep: tot[c] = totals_rows.iloc[0].get(c)
-                            for c in agg_numeric.keys(): tot[c] = totals_rows[c].astype(float).sum()
-                            tot["Nama Variasi"] = ""
-                            totals.append(pd.Series(tot))
-                        else:
-                            gi = grouped[grouped["Kode Produk"] == kp]
-                            if not gi.empty:
-                                tot = {"Kode Produk": kp, "Nama Variasi": ""}
-                                for c in agg_numeric.keys(): tot[c] = gi[c].sum()
-                                for c in other_keep:
-                                    any_row = df[df["Kode Produk"] == kp]
-                                    if not any_row.empty: tot[c] = any_row.iloc[0].get(c)
-                                totals.append(pd.Series(tot))
-                            else:
+                        gi = grouped[grouped["Kode Produk"] == kp]
+                        if not gi.empty:
+                            tot = {"Kode Produk": kp, "Nama Variasi": ""}
+                            for c in agg_numeric.keys():
+                                tot[c] = gi[c].sum()
+                            for c in other_keep:
                                 any_row = df[df["Kode Produk"] == kp]
                                 if not any_row.empty:
-                                    row0 = any_row.iloc[0].copy()
-                                    row0["Nama Variasi"] = ""
-                                    totals.append(row0)
+                                    tot[c] = any_row.iloc[0].get(c)
+                            totals.append(pd.Series(tot))
+                        else:
+                            any_row = df[df["Kode Produk"] == kp]
+                            if not any_row.empty:
+                                row0 = any_row.iloc[0].copy()
+                                row0["Nama Variasi"] = ""
+                                totals.append(row0)
 
-                    totals_df = pd.DataFrame(totals).reset_index(drop=True)
+                totals_df = pd.DataFrame(totals).reset_index(drop=True)
 
-                    final_rows = []
-                    for kp in product_order:
-                        tot_row = totals_df[totals_df["Kode Produk"] == kp]
-                        if not tot_row.empty:
-                            tot_row = tot_row.iloc[0].to_dict()
-                            final_rows.append(tot_row)
-                        
-                        var_rows = grouped[grouped["Kode Produk"] == kp].copy()
-                        sort_col = "Total Penjualan (Pesanan Dibuat) (IDR)"
-                        if sort_col in var_rows.columns:
-                            var_rows[sort_col] = pd.to_numeric(var_rows[sort_col], errors="coerce").fillna(0)
-                            var_rows = var_rows.sort_values(by=sort_col, ascending=False)
-                        
-                        for _, vr in var_rows.iterrows():
-                            final_rows.append(vr.to_dict())
-
-                    df_final = pd.DataFrame(final_rows).fillna("")
-
-                    for rate_col, (num_col, den_col) in rate_cols_config.items():
-                        if num_col in df_final.columns and den_col in df_final.columns:
-                            df_final[rate_col] = df_final.apply(lambda r: format_percentage(safe_div(r.get(num_col, 0), r.get(den_col, 0))), axis=1)
-
-                    def highlight_cond(row):
-                        nv = row.get("Nama Variasi", "")
-                        return (nv == "-" or str(nv).strip() == "")
-
-                    df_final["Nama Variasi"] = df_final["Nama Variasi"].replace({"": "-"})
-
-                    final_cols = []
-                    for c in df.columns:
-                        if c == "Nama Variasi": continue 
-                        if c in df_final.columns:
-                            final_cols.append(c)
-                            if c == "Produk": final_cols.append("Nama Variasi")
-                            
-                    if "Nama Variasi" not in final_cols:
-                        if "Kode Produk" in final_cols:
-                            idx = final_cols.index("Kode Produk") + 1
-                            final_cols.insert(idx, "Nama Variasi")
-                        else: final_cols.insert(0, "Nama Variasi")
-                            
-                    for c in df_final.columns:
-                        if c not in final_cols and not c.startswith("__"): final_cols.append(c)
-
-                    if "Tipe Baris" in final_cols: final_cols.remove("Tipe Baris")
-
-                    df_final["Tipe Baris"] = df_final.apply(lambda r: "Total" if highlight_cond(r) else "~", axis=1)
-                    final_cols.append("Tipe Baris")
-
-                    df_final = df_final[final_cols]
-
-                    total_rows_only = df_final[df_final["Tipe Baris"] == "Total"]
-                    grand_total_data = {}
-                    for c in final_cols:
-                        if c == "Kode Produk": grand_total_data[c] = "Total"
-                        elif c in numeric_cols_guess: grand_total_data[c] = pd.to_numeric(total_rows_only[c], errors="coerce").fillna(0).sum()
-                        else: grand_total_data[c] = "-"
+                final_rows = []
+                for kp in product_order:
+                    tot_row = totals_df[totals_df["Kode Produk"] == kp]
+                    if not tot_row.empty:
+                        tot_row = tot_row.iloc[0].to_dict()
+                        final_rows.append(tot_row)
                     
-                    df_final = pd.concat([df_final, pd.DataFrame([grand_total_data])], ignore_index=True)
+                    var_rows = grouped[grouped["Kode Produk"] == kp].copy()
+                    sort_col = "Total Penjualan (Pesanan Dibuat) (IDR)"
+                    if sort_col in var_rows.columns:
+                        var_rows[sort_col] = pd.to_numeric(var_rows[sort_col], errors="coerce").fillna(0)
+                        var_rows = var_rows.sort_values(by=sort_col, ascending=False)
+                    
+                    for _, vr in var_rows.iterrows():
+                        rdict = vr.to_dict()
+                        final_rows.append(rdict)
 
-                    st.subheader("Hasil yang diproses (preview)")
-                    st.dataframe(df_final.tail(50))
+                df_final = pd.DataFrame(final_rows).fillna("")
 
-                    excel_bytes = to_excel_bytes_with_styling(df_final, product_merge_col="Kode Produk", highlight_condition=highlight_cond)
+                for rate_col, (num_col, den_col) in rate_cols_config.items():
+                    if num_col in df_final.columns and den_col in df_final.columns:
+                        df_final[rate_col] = df_final.apply(lambda r: format_percentage(safe_div(r.get(num_col, 0), r.get(den_col, 0))), axis=1)
 
-                    st.download_button(
-                        label="Unduh hasil (.xlsx, sudah merge, highlight, & Grand Total)",
-                        data=excel_bytes,
-                        file_name="rapi_produk_variasi.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    )
+                def highlight_cond(row):
+                    nv = row.get("Nama Variasi", "")
+                    return (nv == "-" or str(nv).strip() == "")
 
-                    csv_buf = io.BytesIO()
-                    csv_buf.write(df_final.to_csv(index=False).encode("utf-8"))
-                    csv_buf.seek(0)
-                    st.download_button(
-                        label="Unduh hasil (.csv)",
-                        data=csv_buf,
-                        file_name="rapi_produk_variasi.csv",
-                        mime="text/csv",
-                    )
+                df_final["Nama Variasi"] = df_final["Nama Variasi"].replace({"": "-"})
 
-                    st.success("Selesai. Silakan unduh file atau cek pratinjau di atas (di paling bawah pratinjau).")
+                final_cols = []
+                for c in df.columns:
+                    if c == "Nama Variasi":
+                        continue 
+                    if c in df_final.columns:
+                        final_cols.append(c)
+                        if c == "Produk":
+                            final_cols.append("Nama Variasi")
+                            
+                if "Nama Variasi" not in final_cols:
+                    if "Kode Produk" in final_cols:
+                        idx = final_cols.index("Kode Produk") + 1
+                        final_cols.insert(idx, "Nama Variasi")
+                    else:
+                        final_cols.insert(0, "Nama Variasi")
+                        
+                for c in df_final.columns:
+                    if c not in final_cols and not c.startswith("__"):
+                        final_cols.append(c)
 
+                if "Tipe Baris" in final_cols:
+                    final_cols.remove("Tipe Baris")
+
+                df_final["Tipe Baris"] = df_final.apply(lambda r: "Total" if highlight_cond(r) else "~", axis=1)
+                final_cols.append("Tipe Baris")
+
+                df_final = df_final[final_cols]
+
+                total_rows_only = df_final[df_final["Tipe Baris"] == "Total"]
+                
+                grand_total_data = {}
+                for c in final_cols:
+                    if c == "Kode Produk":
+                        grand_total_data[c] = "Total"
+                    elif c in numeric_cols_guess:
+                        grand_total_data[c] = pd.to_numeric(total_rows_only[c], errors="coerce").fillna(0).sum()
+                    else:
+                        grand_total_data[c] = "-"
+                
+                df_final = pd.concat([df_final, pd.DataFrame([grand_total_data])], ignore_index=True)
+
+                st.subheader("Hasil yang diproses (preview)")
+                st.dataframe(df_final.tail(50)) 
+
+                excel_bytes = to_excel_bytes_with_styling(df_final, product_merge_col="Kode Produk", highlight_condition=highlight_cond)
+
+                st.download_button(
+                    label="Unduh hasil (.xlsx, sudah merge, highlight, & Grand Total)",
+                    data=excel_bytes,
+                    file_name="rapi_produk_variasi.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="dl_rapi_xlsx_shopee"
+                )
+
+                csv_buf = io.BytesIO()
+                csv_buf.write(df_final.to_csv(index=False).encode("utf-8"))
+                csv_buf.seek(0)
+                st.download_button(
+                    label="Unduh hasil (.csv)",
+                    data=csv_buf,
+                    file_name="rapi_produk_variasi.csv",
+                    mime="text/csv",
+                    key="dl_rapi_csv_shopee"
+                )
+
+                st.success("Selesai. Silakan unduh file atau cek pratinjau di atas (di paling bawah pratinjau).")
+
+    # =========================================================================
+    # ORIGINAL LOGIC: CSV Iklan -> Excel Berwarna
+    # =========================================================================
     else:
-        # CSV Iklan → Excel Berwarna (Original functionality)
+        # CSV Iklan → Excel Berwarna
         st.header("📊 CSV Iklan → Excel Berwarna")
         st.write("Upload CSV iklan Shopee → otomatis rapi → download Excel laporan")
 
         uploaded_file = st.file_uploader("Upload file CSV iklan Shopee", type=["csv"], key="csviklan_uploader_shopee")
-        csv_mode = csv_mode_sidebar
+        csv_mode = csv_mode_sidebar  
 
         if uploaded_file:
             st.write(f"Mode CSV: **{csv_mode}**")
@@ -768,11 +855,16 @@ def app_shopee_cpas():
                             hijau_tipe_a_df = hijau_tipe_a_df.rename(columns={"Nama Ringkasan": "Nama Iklan"})
 
                         filtered_per_col = {"MERAH": [], "KUNING": [], "HIJAU": [], "BIRU": []}
-                        if include_merah: filtered_per_col["MERAH"] = per_col["MERAH"]
-                        if include_kuning: filtered_per_col["KUNING"] = per_col["KUNING"]
-                        if include_hijau: filtered_per_col["HIJAU"] = per_col["HIJAU"]
-                        if include_biru: filtered_per_col["BIRU"] = per_col["BIRU"]
+                        if include_merah:
+                            filtered_per_col["MERAH"] = per_col["MERAH"]
+                        if include_kuning:
+                            filtered_per_col["KUNING"] = per_col["KUNING"]
+                        if include_hijau:
+                            filtered_per_col["HIJAU"] = per_col["HIJAU"]
+                        if include_biru:
+                            filtered_per_col["BIRU"] = per_col["BIRU"]
 
+                        # EXPORT
                         buffer = io.BytesIO()
                         original_name = uploaded_file.name
                         base_name = original_name.rsplit(".", 1)[0]
@@ -872,12 +964,8 @@ def app_meta():
         <style>
         /* Scoped META styling */
         html, body, .stApp, .reportview-container, .main, .block-container { background-color: #0066E7 !important; }
-
-        /* Sidebar (left navbar) */
         section[data-testid="stSidebar"] > div:first-child { background-color: #0066E7 !important; }
         section[data-testid="stSidebar"] * { color: #ffffff !important; }
-
-        /* Uploader */
         div[data-testid="stFileUploader"] .upload-container,
         .stFileUploader > div {
             background-color: #ffffff !important;
@@ -887,11 +975,7 @@ def app_meta():
         }
         .stFileUploader p, .stFileUploader label, .stFileUploader span { color: #0066E7 !important; }
         .stFileUploader button { background-color: #ffffff !important; color: #0066E7 !important; border: 1px solid #0066E7 !important; }
-
-        /* Dataframe */
         .stDataFrame, .stDataFrame table, .ag-root { background-color: #ffffff !important; color: #000000 !important; }
-        
-        /* Tab Navigation */
         div[data-testid="stTabs"] button { color: #ffffff !important; font-weight: bold; }
         div[data-testid="stTabs"] button[aria-selected="true"] { color: #FFD700 !important; border-bottom-color: #FFD700 !important; }
         </style>
@@ -911,6 +995,7 @@ def app_meta():
 
     tab_lama, tab_baru = st.tabs(["📊 Aplikasi Standar", "📈 Aplikasi Custom (Biaya per hasil)"])
 
+    # TAB 1: APLIKASI LAMA (STANDAR)
     with tab_lama:
         uploaded_file_lama = st.file_uploader("Upload file Excel (.xlsx) - Standar", type=["xlsx"], key="meta_uploader_lama")
 
@@ -1006,6 +1091,7 @@ def app_meta():
             except Exception as e:
                 st.error(f"Gagal membaca file: {e}")
 
+    # TAB 2: APLIKASI BARU (CUSTOM)
     with tab_baru:
         uploaded_file_baru = st.file_uploader("Upload file Excel (.xlsx) - Custom (Header Baris 3)", type=["xlsx"], key="meta_uploader_baru")
 
@@ -1122,8 +1208,7 @@ def app_meta():
                 )
             except Exception as e:
                 st.error(f"Gagal membaca file: {e}. Pastikan header tabel berada tepat di baris ke-3 Excel Anda.")
-
-
+                
 # -----------------------------
 # APP 3: TikTok (wrapped)
 # -----------------------------
@@ -1131,6 +1216,7 @@ def app_meta():
 def app_tiktok():
     st.title("🎵 Excel Tools — TikTok")
 
+    # Helper & Config untuk PURE & Fixer (Fitur 1 & 2)
     percent_cols = [
         'Tingkat klik iklan produk', 'Rasio konversi iklan', 'Rasio tayang video iklan 2 detik',
         'Rasio tayang video iklan 6 detik', 'Rasio tayang video iklan 25%', 'Rasio tayang video iklan 50%',
@@ -1239,6 +1325,7 @@ def app_tiktok():
         except Exception:
             return None, None
 
+    # NAVBAR MINI TIKTOK
     PAGES_TIKTOK = ["📊 Pewarnaan ROI (PURE)", "🛠️ Excel Fixer: Campaign ID & Comma", "📅 Daily Ads Comparator"]
     if "page_tiktok" not in st.session_state:
         st.session_state.page_tiktok = PAGES_TIKTOK[0]
@@ -1250,6 +1337,7 @@ def app_tiktok():
                 st.session_state.page_tiktok = p
     st.markdown("---")
 
+    # HALAMAN 1: PEWARNAAN ROI
     if st.session_state.page_tiktok == "📊 Pewarnaan ROI (PURE)":
         st.header("📊 Excel Iklan → Pewarnaan ROI (PURE)")
         st.caption("Input Excel (.xlsx/.xls). Hanya ganti warna berdasarkan kolom ROI yang ada — data tidak diubah.")
@@ -1344,6 +1432,7 @@ def app_tiktok():
                 except Exception as e:
                     st.error(f"Ada error saat memproses: {e}")
 
+    # HALAMAN 2: EXCEL FIXER
     elif st.session_state.page_tiktok == "🛠️ Excel Fixer: Campaign ID & Comma":
         st.header("Excel Fixer: Campaign ID & Comma")
         st.markdown("Mengamankan **ID Campaign** dari `E+10` dan mengganti koma `,` menjadi titik `.`")
@@ -1386,6 +1475,7 @@ def app_tiktok():
                 except Exception as e:
                     st.error(f"Gagal menulis file Excel: {e}")
 
+    # HALAMAN 3: DAILY ADS COMPARATOR
     elif st.session_state.page_tiktok == "📅 Daily Ads Comparator":
         st.header("Ads Performance Comparator — DAILY FOCUS")
         st.markdown("""
@@ -1546,7 +1636,6 @@ def app_tiktok():
                     for cell in ws['A'][1:]: cell.number_format = 'yyyy-mm-dd'
 
                     from openpyxl.formatting.rule import FormulaRule
-                    from openpyxl.styles import PatternFill
                     from openpyxl.chart import LineChart, Reference
 
                     green_fill = PatternFill(start_color="B6F2C2", end_color="B6F2C2", fill_type="solid")
@@ -1686,6 +1775,7 @@ def main():
     st.sidebar.title("Multi-Platform Dashboard")
     st.sidebar.markdown("Pilih platform dari navbar atas atau dari sini:")
     chosen = st.sidebar.selectbox("Pilih platform (sidebar)", options=PAGES, index=PAGES.index(st.session_state.page), key="sidebar_platform_select")
+    # keep session page in sync
     st.session_state.page = chosen
 
     navbar()
