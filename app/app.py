@@ -1178,8 +1178,12 @@ def app_meta():
             try:
                 df_baru = pd.read_excel(uploaded_file_baru, header=2) 
                 
-                # --- FITUR TAMBAHAN: Hapus kolom yang isinya kosong semua ---
-                df_baru.dropna(axis=1, how='all', inplace=True)
+                # --- FITUR: Hanya hapus kolom yang header-nya tidak punya nama (Unnamed) ---
+                df_baru = df_baru.loc[:, ~df_baru.columns.str.contains('^Unnamed', na=False)]
+
+                # Jika ingin menghapus kolom yang benar-benar string kosong di header-nya:
+                df_baru = df_baru.loc[:, df_baru.columns.notna()] 
+                df_baru = df_baru.loc[:, df_baru.columns != ""]
                 
                 # Mendapatkan nama original (tanpa ekstensi)
                 base_name_baru = uploaded_file_baru.name.rsplit(".", 1)[0]
