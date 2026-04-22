@@ -1026,7 +1026,7 @@ def app_meta():
                         if col == "CPM (Biaya Per 1.000 Tayangan)" and eval_v is not None and eval_v > 15000: cell.fill = red_fill
                         if col == "CTR (Rasio Klik Tayang Tautan)" and eval_v is not None and eval_v < 0.5: cell.fill = red_fill
                         if col == "Frekuensi" and eval_v is not None and eval_v > 3: cell.fill = red_fill
-                        if col == "ROAS Pembelian Khusus untuk Item Bersama" and eval_v is not None and eval_v >= 10: cell.fill = green_fill
+                        if col == "ROAS Pembelian Khusus untuk Item Bersama" or "ROAS pembelian khusus untuk item bersama" and eval_v is not None and eval_v >= 10: cell.fill = green_fill
                     else:
                         cell.value = raw_val
 
