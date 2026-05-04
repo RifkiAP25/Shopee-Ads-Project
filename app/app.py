@@ -513,175 +513,228 @@ def app_shopee_cpas():
             st.dataframe(df_raw.head(200))
 
             if st.button("Process", key="process_variasi_shopee"):
-                df = df_raw.copy()
-                df = drop_kode_variasi_cols(df)
+                
+                # Membungkus logika utama agar bisa dipanggil 2 kali (untuk Warna & Ukuran)
+                def process_dataframe(df_input, mode="warna"):
+                    df = df_input.copy()
+                    df = drop_kode_variasi_cols(df)
 
-                numeric_cols_guess = [
-                    "Pengunjung Produk (Kunjungan)", "Halaman Produk Dilihat", "Pengunjung Melihat Tanpa Membeli",
-                    "Klik Pencarian", "Suka", "Pengunjung Produk (Menambahkan Produk ke Keranjang)",
-                    "Dimasukkan ke Keranjang (Produk)", "Total Pembeli (Pesanan Dibuat)", "Produk (Pesanan Dibuat)",
-                    "Total Penjualan (Pesanan Dibuat) (IDR)", "Total Pembeli (Pesanan Siap Dikirim)",
-                    "Produk (Pesanan Siap Dikirim)", "Penjualan (Pesanan Siap Dikirim) (IDR)"
-                ]
-                rate_cols_config = {
-                    "Tingkat Pengunjung Melihat Tanpa Membeli": ("Pengunjung Melihat Tanpa Membeli", "Pengunjung Produk (Kunjungan)"),
-                    "Tingkat Konversi Produk Dimasukkan ke Keranjang": ("Pengunjung Produk (Menambahkan Produk ke Keranjang)", "Pengunjung Produk (Kunjungan)"),
-                    "Tingkat Konversi (Pesanan yang Dibuat)": ("Total Pembeli (Pesanan Dibuat)", "Pengunjung Produk (Kunjungan)"),
-                    "Tingkat Konversi (Pesanan Siap Dikirim)": ("Total Pembeli (Pesanan Siap Dikirim)", "Pengunjung Produk (Kunjungan)"),
-                    "Tingkat Konversi (Pesanan Siap Dikirim dibagi Pesanan Dibuat)": ("Total Pembeli (Pesanan Siap Dikirim)", "Total Pembeli (Pesanan Dibuat)")
-                }
+                    numeric_cols_guess = [
+                        "Pengunjung Produk (Kunjungan)", "Halaman Produk Dilihat", "Pengunjung Melihat Tanpa Membeli",
+                        "Klik Pencarian", "Suka", "Pengunjung Produk (Menambahkan Produk ke Keranjang)",
+                        "Dimasukkan ke Keranjang (Produk)", "Total Pembeli (Pesanan Dibuat)", "Produk (Pesanan Dibuat)",
+                        "Total Penjualan (Pesanan Dibuat) (IDR)", "Total Pembeli (Pesanan Siap Dikirim)",
+                        "Produk (Pesanan Siap Dikirim)", "Penjualan (Pesanan Siap Dikirim) (IDR)"
+                    ]
+                    rate_cols_config = {
+                        "Tingkat Pengunjung Melihat Tanpa Membeli": ("Pengunjung Melihat Tanpa Membeli", "Pengunjung Produk (Kunjungan)"),
+                        "Tingkat Konversi Produk Dimasukkan ke Keranjang": ("Pengunjung Produk (Menambahkan Produk ke Keranjang)", "Pengunjung Produk (Kunjungan)"),
+                        "Tingkat Konversi (Pesanan yang Dibuat)": ("Total Pembeli (Pesanan Dibuat)", "Pengunjung Produk (Kunjungan)"),
+                        "Tingkat Konversi (Pesanan Siap Dikirim)": ("Total Pembeli (Pesanan Siap Dikirim)", "Pengunjung Produk (Kunjungan)"),
+                        "Tingkat Konversi (Pesanan Siap Dikirim dibagi Pesanan Dibuat)": ("Total Pembeli (Pesanan Siap Dikirim)", "Total Pembeli (Pesanan Dibuat)")
+                    }
 
-                if "Kode Produk" not in df.columns or "Nama Variasi" not in df.columns:
-                    st.error("File harus berisi kolom 'Kode Produk' dan 'Nama Variasi'.")
-                    st.stop()
+                    if "Kode Produk" not in df.columns or "Nama Variasi" not in df.columns:
+                        return None, None, None, "File harus berisi kolom 'Kode Produk' dan 'Nama Variasi'."
 
-                df["__NamaVariasiRaw"] = df["Nama Variasi"].astype(object)
-                df["NamaVariasiBase"] = df["Nama Variasi"].apply(extract_variation_base)
-                df["__is_total_row"] = df["NamaVariasiBase"].fillna("").apply(lambda s: True if s == "" else False)
+                    df["__NamaVariasiRaw"] = df["Nama Variasi"].astype(object)
+                    
+                    # --- LOGIKA PENENTU PENGELOMPOKAN ---
+                    if mode == "warna":
+                        df["NamaVariasiBase"] = df["Nama Variasi"].apply(extract_variation_base)
+                    elif mode == "ukuran":
+                        # Ekstrak ukuran (mengambil string setelah koma atau strip)
+                        def extract_size(val):
+                            val_str = str(val)
+                            if "," in val_str: 
+                                return val_str.split(",")[-1].strip()
+                            elif "-" in val_str: 
+                                return val_str.split("-")[-1].strip()
+                            return val_str.strip()
+                        
+                        df["NamaVariasiBase"] = df["Nama Variasi"].apply(extract_size)
+                    # ------------------------------------
 
-                product_order = []
-                seen = set()
-                for i, r in df.iterrows():
-                    kp = r.get("Kode Produk")
-                    if kp not in seen:
-                        seen.add(kp)
-                        product_order.append(kp)
+                    df["__is_total_row"] = df["NamaVariasiBase"].fillna("").apply(lambda s: True if s == "" else False)
 
-                variation_mask = ~df["__is_total_row"]
-                agg_numeric = {}
-                for c in df.columns:
-                    if c in numeric_cols_guess:
-                        df[c] = df[c].apply(clean_idr_number)
-                        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
-                        agg_numeric[c] = "sum"
+                    product_order = []
+                    seen = set()
+                    for i, r in df.iterrows():
+                        kp = r.get("Kode Produk")
+                        if kp not in seen:
+                            seen.add(kp)
+                            product_order.append(kp)
 
-                other_keep = ["SKU Induk", "Produk"] + list(rate_cols_config.keys())
-                agg_other = {c: "first" for c in other_keep if c in df.columns}
+                    variation_mask = ~df["__is_total_row"]
+                    agg_numeric = {}
+                    for c in df.columns:
+                        if c in numeric_cols_guess:
+                            df[c] = df[c].apply(clean_idr_number)
+                            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+                            agg_numeric[c] = "sum"
 
-                group_cols = ["Kode Produk", "NamaVariasiBase"]
-                if variation_mask.any():
-                    grouped = df[variation_mask].groupby(group_cols, dropna=False, as_index=False).agg({**agg_numeric, **agg_other})
-                    grouped = grouped.rename(columns={"NamaVariasiBase": "Nama Variasi"})
-                else:
-                    grouped = pd.DataFrame(columns=["Kode Produk", "Nama Variasi"] + list(agg_numeric.keys()) + list(agg_other.keys()))
+                    other_keep = ["SKU Induk", "Produk"] + list(rate_cols_config.keys())
+                    agg_other = {c: "first" for c in other_keep if c in df.columns}
 
-                totals = []
-                for kp in product_order:
-                    totals_rows = df[(df["Kode Produk"] == kp) & (df["__is_total_row"])]
-                    if not totals_rows.empty:
-                        tot = {"Kode Produk": kp}
-                        for c in df.columns:
-                            if c in other_keep: tot[c] = totals_rows.iloc[0].get(c)
-                        for c in agg_numeric.keys():
-                            tot[c] = totals_rows[c].astype(float).sum()
-                        tot["Nama Variasi"] = ""
-                        totals.append(pd.Series(tot))
+                    group_cols = ["Kode Produk", "NamaVariasiBase"]
+                    if variation_mask.any():
+                        grouped = df[variation_mask].groupby(group_cols, dropna=False, as_index=False).agg({**agg_numeric, **agg_other})
+                        grouped = grouped.rename(columns={"NamaVariasiBase": "Nama Variasi"})
                     else:
-                        gi = grouped[grouped["Kode Produk"] == kp]
-                        if not gi.empty:
-                            tot = {"Kode Produk": kp, "Nama Variasi": ""}
-                            for c in agg_numeric.keys(): tot[c] = gi[c].sum()
-                            for c in other_keep:
-                                any_row = df[df["Kode Produk"] == kp]
-                                if not any_row.empty: tot[c] = any_row.iloc[0].get(c)
+                        grouped = pd.DataFrame(columns=["Kode Produk", "Nama Variasi"] + list(agg_numeric.keys()) + list(agg_other.keys()))
+
+                    totals = []
+                    for kp in product_order:
+                        totals_rows = df[(df["Kode Produk"] == kp) & (df["__is_total_row"])]
+                        if not totals_rows.empty:
+                            tot = {"Kode Produk": kp}
+                            for c in df.columns:
+                                if c in other_keep: tot[c] = totals_rows.iloc[0].get(c)
+                            for c in agg_numeric.keys():
+                                tot[c] = totals_rows[c].astype(float).sum()
+                            tot["Nama Variasi"] = ""
                             totals.append(pd.Series(tot))
                         else:
-                            any_row = df[df["Kode Produk"] == kp]
-                            if not any_row.empty:
-                                row0 = any_row.iloc[0].copy()
-                                row0["Nama Variasi"] = ""
-                                totals.append(row0)
+                            gi = grouped[grouped["Kode Produk"] == kp]
+                            if not gi.empty:
+                                tot = {"Kode Produk": kp, "Nama Variasi": ""}
+                                for c in agg_numeric.keys(): tot[c] = gi[c].sum()
+                                for c in other_keep:
+                                    any_row = df[df["Kode Produk"] == kp]
+                                    if not any_row.empty: tot[c] = any_row.iloc[0].get(c)
+                                totals.append(pd.Series(tot))
+                            else:
+                                any_row = df[df["Kode Produk"] == kp]
+                                if not any_row.empty:
+                                    row0 = any_row.iloc[0].copy()
+                                    row0["Nama Variasi"] = ""
+                                    totals.append(row0)
 
-                totals_df = pd.DataFrame(totals).reset_index(drop=True)
-                sort_col_induk = "Penjualan (Pesanan Siap Dikirim) (IDR)"
-                if sort_col_induk in totals_df.columns:
-                    totals_df[sort_col_induk] = pd.to_numeric(totals_df[sort_col_induk], errors="coerce").fillna(0)
-                    totals_df = totals_df.sort_values(by=sort_col_induk, ascending=False)
-                    
-                product_order = totals_df["Kode Produk"].tolist()
-                final_rows = []
-                for kp in product_order:
-                    tot_row = totals_df[totals_df["Kode Produk"] == kp]
-                    if not tot_row.empty:
-                        tot_row = tot_row.iloc[0].to_dict()
-                        final_rows.append(tot_row)
-                    
-                    var_rows = grouped[grouped["Kode Produk"] == kp].copy()
-                    if sort_col_induk in var_rows.columns:
-                        var_rows[sort_col_induk] = pd.to_numeric(var_rows[sort_col_induk], errors="coerce").fillna(0)
-                        var_rows = var_rows.sort_values(by=sort_col_induk, ascending=False)
-                    
-                    for _, vr in var_rows.iterrows():
-                        final_rows.append(vr.to_dict())
-
-                df_final = pd.DataFrame(final_rows).fillna("")
-
-                for rate_col, (num_col, den_col) in rate_cols_config.items():
-                    if num_col in df_final.columns and den_col in df_final.columns:
-                        df_final[rate_col] = df_final.apply(lambda r: format_percentage(safe_div(r.get(num_col, 0), r.get(den_col, 0))), axis=1)
-
-                def highlight_cond(row):
-                    nv = row.get("Nama Variasi", "")
-                    return (nv == "-" or str(nv).strip() == "")
-
-                df_final["Nama Variasi"] = df_final["Nama Variasi"].replace({"": "-"})
-
-                final_cols = []
-                for c in df.columns:
-                    if c == "Nama Variasi": continue 
-                    if c in df_final.columns:
-                        final_cols.append(c)
-                        if c == "Produk": final_cols.append("Nama Variasi")
-                            
-                if "Nama Variasi" not in final_cols:
-                    if "Kode Produk" in final_cols:
-                        idx = final_cols.index("Kode Produk") + 1
-                        final_cols.insert(idx, "Nama Variasi")
-                    else:
-                        final_cols.insert(0, "Nama Variasi")
+                    totals_df = pd.DataFrame(totals).reset_index(drop=True)
+                    sort_col_induk = "Penjualan (Pesanan Siap Dikirim) (IDR)"
+                    if sort_col_induk in totals_df.columns:
+                        totals_df[sort_col_induk] = pd.to_numeric(totals_df[sort_col_induk], errors="coerce").fillna(0)
+                        totals_df = totals_df.sort_values(by=sort_col_induk, ascending=False)
                         
-                for c in df_final.columns:
-                    if c not in final_cols and not c.startswith("__"): final_cols.append(c)
+                    product_order = totals_df["Kode Produk"].tolist()
+                    final_rows = []
+                    for kp in product_order:
+                        tot_row = totals_df[totals_df["Kode Produk"] == kp]
+                        if not tot_row.empty:
+                            tot_row = tot_row.iloc[0].to_dict()
+                            final_rows.append(tot_row)
+                        
+                        var_rows = grouped[grouped["Kode Produk"] == kp].copy()
+                        if sort_col_induk in var_rows.columns:
+                            var_rows[sort_col_induk] = pd.to_numeric(var_rows[sort_col_induk], errors="coerce").fillna(0)
+                            var_rows = var_rows.sort_values(by=sort_col_induk, ascending=False)
+                        
+                        for _, vr in var_rows.iterrows():
+                            final_rows.append(vr.to_dict())
 
-                if "Tipe Baris" in final_cols: final_cols.remove("Tipe Baris")
+                    df_final = pd.DataFrame(final_rows).fillna("")
 
-                df_final["Tipe Baris"] = df_final.apply(lambda r: "Total" if highlight_cond(r) else "~", axis=1)
-                final_cols.append("Tipe Baris")
-                df_final = df_final[final_cols]
+                    for rate_col, (num_col, den_col) in rate_cols_config.items():
+                        if num_col in df_final.columns and den_col in df_final.columns:
+                            df_final[rate_col] = df_final.apply(lambda r: format_percentage(safe_div(r.get(num_col, 0), r.get(den_col, 0))), axis=1)
 
-                total_rows_only = df_final[df_final["Tipe Baris"] == "Total"]
-                grand_total_data = {}
-                for c in final_cols:
-                    if c == "Kode Produk": grand_total_data[c] = "Total"
-                    elif c in numeric_cols_guess: grand_total_data[c] = pd.to_numeric(total_rows_only[c], errors="coerce").fillna(0).sum()
-                    else: grand_total_data[c] = "-"
-                
-                df_final = pd.concat([df_final, pd.DataFrame([grand_total_data])], ignore_index=True)
+                    def highlight_cond(row):
+                        nv = row.get("Nama Variasi", "")
+                        return (nv == "-" or str(nv).strip() == "")
 
-                st.subheader("Hasil yang diproses (preview)")
-                st.dataframe(df_final.tail(50)) 
+                    df_final["Nama Variasi"] = df_final["Nama Variasi"].replace({"": "-"})
 
-                excel_bytes = to_excel_bytes_with_styling(df_final, product_merge_col="Kode Produk", highlight_condition=highlight_cond)
+                    final_cols = []
+                    for c in df.columns:
+                        if c == "Nama Variasi": continue 
+                        if c in df_final.columns:
+                            final_cols.append(c)
+                            if c == "Produk": final_cols.append("Nama Variasi")
+                                
+                    if "Nama Variasi" not in final_cols:
+                        if "Kode Produk" in final_cols:
+                            idx = final_cols.index("Kode Produk") + 1
+                            final_cols.insert(idx, "Nama Variasi")
+                        else:
+                            final_cols.insert(0, "Nama Variasi")
+                            
+                    for c in df_final.columns:
+                        if c not in final_cols and not c.startswith("__"): final_cols.append(c)
 
-                st.download_button(
-                    label="Unduh hasil (.xlsx, sudah merge, highlight, & Grand Total)",
-                    data=excel_bytes,
-                    file_name=f"{base_name}_sorted.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="dl_rapi_xlsx_shopee"
-                )
+                    if "Tipe Baris" in final_cols: final_cols.remove("Tipe Baris")
 
-                csv_buf = io.BytesIO()
-                csv_buf.write(df_final.to_csv(index=False).encode("utf-8"))
-                csv_buf.seek(0)
-                st.download_button(
-                    label="Unduh hasil (.csv)",
-                    data=csv_buf,
-                    file_name=f"{base_name}_sorted.csv",
-                    mime="text/csv",
-                    key="dl_rapi_csv_shopee"
-                )
-                st.success("Selesai. Silakan unduh file atau cek pratinjau di atas.")
+                    df_final["Tipe Baris"] = df_final.apply(lambda r: "Total" if highlight_cond(r) else "~", axis=1)
+                    final_cols.append("Tipe Baris")
+                    df_final = df_final[final_cols]
+
+                    total_rows_only = df_final[df_final["Tipe Baris"] == "Total"]
+                    grand_total_data = {}
+                    for c in final_cols:
+                        if c == "Kode Produk": grand_total_data[c] = "Total"
+                        elif c in numeric_cols_guess: grand_total_data[c] = pd.to_numeric(total_rows_only[c], errors="coerce").fillna(0).sum()
+                        else: grand_total_data[c] = "-"
+                    
+                    df_final = pd.concat([df_final, pd.DataFrame([grand_total_data])], ignore_index=True)
+
+                    excel_b = to_excel_bytes_with_styling(df_final, product_merge_col="Kode Produk", highlight_condition=highlight_cond)
+                    
+                    c_buf = io.BytesIO()
+                    c_buf.write(df_final.to_csv(index=False).encode("utf-8"))
+                    c_buf.seek(0)
+                    
+                    return df_final, excel_b, c_buf, None
+
+                # --- PROSES UNTUK KEDUA MODE ---
+                with st.spinner("Memproses data..."):
+                    df_warna, ex_warna, csv_warna, err_warna = process_dataframe(df_raw, mode="warna")
+                    df_ukuran, ex_ukuran, csv_ukuran, err_ukuran = process_dataframe(df_raw, mode="ukuran")
+
+                if err_warna or err_ukuran:
+                    st.error(err_warna or err_ukuran)
+                    st.stop()
+
+                # --- MENAMPILKAN HASIL DAN TOMBOL DOWNLOAD ---
+                st.success("Proses Selesai! Silakan pilih format laporan yang ingin diunduh.")
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    st.subheader("🎨 Berdasarkan Warna/Variasi")
+                    with st.expander("Lihat Preview Warna"):
+                        st.dataframe(df_warna.tail(30))
+                    st.download_button(
+                        label="⬇️ Unduh Excel (Berdasarkan Warna)",
+                        data=ex_warna,
+                        file_name=f"{base_name}_Warna.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="dl_excel_warna"
+                    )
+                    st.download_button(
+                        label="⬇️ Unduh CSV (Berdasarkan Warna)",
+                        data=csv_warna,
+                        file_name=f"{base_name}_Warna.csv",
+                        mime="text/csv",
+                        key="dl_csv_warna"
+                    )
+
+                with col2:
+                    st.subheader("📏 Berdasarkan Ukuran (Size)")
+                    with st.expander("Lihat Preview Ukuran"):
+                        st.dataframe(df_ukuran.tail(30))
+                    st.download_button(
+                        label="⬇️ Unduh Excel (Berdasarkan Ukuran)",
+                        data=ex_ukuran,
+                        file_name=f"{base_name}_Ukuran.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="dl_excel_ukuran"
+                    )
+                    st.download_button(
+                        label="⬇️ Unduh CSV (Berdasarkan Ukuran)",
+                        data=csv_ukuran,
+                        file_name=f"{base_name}_Ukuran.csv",
+                        mime="text/csv",
+                        key="dl_csv_ukuran"
+                    )
 
 
     # =========================================================================
